@@ -205,6 +205,7 @@ class StripeCheckoutViewTests(PaymentEventsMixin, TestCase):
                             data={
                                 'payment_intent_id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
                                 'skus': basket.lines.first().stockrecord.partner_sku,
+                                'dynamic_payment_methods_enabled': False,
                             },
                         )
                 assert mock_retrieve.call_count == 1
@@ -380,6 +381,7 @@ class StripeCheckoutViewTests(PaymentEventsMixin, TestCase):
             data={
                 'payment_intent_id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
                 'skus': '',
+                'dynamic_payment_methods_enabled': False,
             },
         )
         assert response.status_code == 302
@@ -397,6 +399,7 @@ class StripeCheckoutViewTests(PaymentEventsMixin, TestCase):
                 {
                     'payment_intent_id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
                     'skus': 'totally_the_wrong_sku',
+                    'dynamic_payment_methods_enabled': False,
                 },
             )
             assert response.json() == {'sku_error': True}
@@ -423,10 +426,43 @@ class StripeCheckoutViewTests(PaymentEventsMixin, TestCase):
                 {
                     'payment_intent_id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
                     'skus': basket.lines.first().stockrecord.partner_sku,
+                    'dynamic_payment_methods_enabled': False,
                 },
             )
             assert response.status_code == 400
             assert response.json() == {'sdn_check_failure': {'hit_count': 1}}
+
+    def test_payment_handle_payment_intent_in_progress(self):
+        """
+        Verify the POST endpoint handles a Payment Intent that is not succeeded yet.
+        """
+        basket = self.create_basket(product_class=SEAT_PRODUCT_CLASS_NAME)
+
+        with mock.patch('stripe.PaymentIntent.confirm') as mock_confirm:
+            mock_confirm.return_value = {
+                'id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
+                'client_secret': 'pi_3LsftNIadiFyUl1x2TWxaADZ_secret_VxRx7Y1skyp0jKtq7Gdu80Xnh',
+                'status': 'requires_action'
+            }
+            with mock.patch('stripe.PaymentIntent.modify') as mock_modify:
+                mock_modify.return_value = {
+                    'id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
+                    'client_secret': 'pi_3LsftNIadiFyUl1x2TWxaADZ_secret_VxRx7Y1skyp0jKtq7Gdu80Xnh',
+
+                }
+                response = self.client.post(
+                    self.stripe_checkout_url,
+                    data={
+                        'payment_intent_id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
+                        'skus': basket.lines.first().stockrecord.partner_sku,
+                        'dynamic_payment_methods_enabled': True,
+                    },
+                )
+                assert response.status_code == 200
+                assert response.json() == {
+                    'status': 'requires_action',
+                    'transaction_id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
+                }
 
     def test_handle_payment_fails_with_carderror(self):
         """
@@ -439,6 +475,7 @@ class StripeCheckoutViewTests(PaymentEventsMixin, TestCase):
             {
                 'payment_intent_id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
                 'skus': basket.lines.first().stockrecord.partner_sku,
+                'dynamic_payment_methods_enabled': False,
             },
             confirm_side_effect=stripe.error.CardError('Oops!', {}, 'card_declined'),
         )
@@ -459,6 +496,7 @@ class StripeCheckoutViewTests(PaymentEventsMixin, TestCase):
                 {
                     'payment_intent_id': 'pi_3LsftNIadiFyUl1x2TWxaADZ',
                     'skus': basket.lines.first().stockrecord.partner_sku,
+                    'dynamic_payment_methods_enabled': False,
                 },
             )
             assert response.status_code == 400
